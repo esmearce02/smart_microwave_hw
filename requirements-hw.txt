@@ -1,0 +1,11 @@
+# Raspberry Pi 5 hardware dependencies
+# Install on the Pi with:
+#   pip install -r requirements.txt -r requirements-hw.txt
+
+# Pi AI Camera
+picamera2
+
+# MLX90640 thermal camera (I2C)
+adafruit-blinka
+adafruit-circuitpython-mlx90640
+smbus2

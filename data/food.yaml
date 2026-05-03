@@ -1,0 +1,20 @@
+path: C:\Users\esmea\smart_microwave_sim\data
+train: train/images
+val:   val/images
+
+nc: 14
+names:
+  0: broccoli
+  1: chicken nugget
+  2: rice
+  3: green beans
+  4: grilled salmon
+  5: lasagna
+  6: mac and cheese
+  7: mashed potatoes
+  8: milk
+  9: pasta
+  10: pizza
+  11: soup
+  12: baked beans
+  13: baked potato

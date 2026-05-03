@@ -1,0 +1,15 @@
+# Python
+venv/
+__pycache__/
+*.pyc
+*.pyo
+
+# Dataset images (too large for git — re-run prepare_data.py on the Pi)
+data/train/
+data/val/
+
+# Training runs
+runs/
+
+# Keep food.yaml and models
+!data/food.yaml
