@@ -1,6 +1,6 @@
 """
 Food detection module using Ultralytics YOLO.
-Camera priority: Raspberry Pi AI Camera (picamera2) → USB webcam → simulation.
+Camera: Raspberry Pi AI Camera (IMX500 via picamera2) → simulation fallback.
 """
 
 import random
@@ -17,13 +17,10 @@ except ImportError:
 
 try:
     from picamera2 import Picamera2
-    from picamera2.devices.imx500 import IMX500
+    from picamera2.devices import IMX500
     _PICAM_OK = True
 except (ImportError, RuntimeError):
     _PICAM_OK = False
-
-# Class names must match the order in food.yaml
-FOOD_CLASS_IDS = set(range(14))
 
 FOOD_META = {
     "soup":             {"icon": "🍲", "initial_temp_f": 55, "desc": "Soup"},
@@ -42,7 +39,7 @@ FOOD_META = {
     "milk":             {"icon": "🥛", "initial_temp_f": 38, "desc": "Milk"},
 }
 
-_SIM_FOODS = list(FOOD_META.keys())
+_SIM_FOODS  = list(FOOD_META.keys())
 
 _CLASS_NAMES = [
     "broccoli", "chicken nugget", "rice", "green beans", "grilled salmon",
@@ -51,10 +48,10 @@ _CLASS_NAMES = [
 ]
 
 DATA_DIR = Path(__file__).parent / "data"
+RPK_DIR  = Path("/usr/share/imx500-models")
 
 
 def _build_class_image_index() -> dict[str, list[Path]]:
-    """Map each food name → list of image paths where that class dominates."""
     index: dict[str, list[Path]] = {name: [] for name in _CLASS_NAMES}
     for split in ("train", "val"):
         labels_dir = DATA_DIR / split / "labels"
@@ -82,19 +79,16 @@ def _build_class_image_index() -> dict[str, list[Path]]:
 
 class FoodDetector:
     """
-    Wraps YOLO detection with camera priority:
-      1. Raspberry Pi AI Camera (picamera2)
-      2. USB webcam (cv2)
-      3. Simulation fallback
+    YOLO food detection using the Raspberry Pi AI Camera (IMX500).
+    Falls back to simulation when hardware is unavailable.
     """
 
     def __init__(self, model_name: str = "models/best.pt"):
-        self.model      = None
-        self.picam      = None   # Raspberry Pi AI Camera
-        self.cap        = None   # USB webcam fallback
-        self.sim_mode   = True
-        self.force_sim  = False
-        self._sim_frame = None
+        self.model         = None
+        self.picam         = None
+        self.sim_mode      = True
+        self.force_sim     = False
+        self._sim_frame    = None
         self._class_images = _build_class_image_index()
         self._model_name   = model_name
         self._load()
@@ -103,6 +97,7 @@ class FoodDetector:
 
     def _load(self):
         if not _YOLO_OK:
+            print("[FoodDetector] Ultralytics not available — simulation mode.")
             return
         try:
             self.model = YOLO(self._model_name)
@@ -110,37 +105,40 @@ class FoodDetector:
             print(f"[FoodDetector] YOLO load error: {exc} — simulation mode.")
             return
 
-        # 1. Try Raspberry Pi AI Camera (IMX500)
-        if _PICAM_OK:
-            try:
-                # IMX500 requires a model file — use any available rpk to init the sensor.
-                # Food detection still runs via our YOLO model on the Pi CPU.
-                rpk_dir = Path("/usr/share/imx500-models")
-                rpk_files = sorted(rpk_dir.glob("*.rpk")) if rpk_dir.exists() else []
-                if not rpk_files:
-                    raise FileNotFoundError("No RPK models found in /usr/share/imx500-models/")
-                imx500 = IMX500(str(rpk_files[0]))   # must be called before Picamera2()
-                self.picam = Picamera2(imx500.camera_num)
-                cfg = self.picam.create_preview_configuration(
-                    main={"format": "RGB888", "size": (640, 480)}
-                )
-                self.picam.configure(cfg)
-                self.picam.start()
-                self.sim_mode = False
-                print(f"[FoodDetector] Raspberry Pi AI Camera (IMX500) + YOLO active.")
-                return
-            except Exception as exc:
-                print(f"[FoodDetector] Pi AI Camera error: {exc}")
-                self.picam = None
+        if not _PICAM_OK:
+            print("[FoodDetector] picamera2 not available — simulation mode.")
+            return
 
-        # 2. Fall back to USB webcam
-        self.cap = cv2.VideoCapture(0)
-        if self.cap.isOpened():
+        # IMX500 must be instantiated BEFORE Picamera2
+        rpk_files = sorted(RPK_DIR.glob("*.rpk")) if RPK_DIR.exists() else []
+        if not rpk_files:
+            print("[FoodDetector] No RPK models in /usr/share/imx500-models/ — simulation mode.")
+            print("               Run: sudo apt install imx500-all")
+            return
+
+        try:
+            imx500      = IMX500(str(rpk_files[0]))
+            intrinsics  = imx500.network_intrinsics
+            frame_rate  = intrinsics.inference_rate if intrinsics else 30
+
+            self.picam  = Picamera2(imx500.camera_num)
+            config      = self.picam.create_preview_configuration(
+                main         = {"format": "RGB888", "size": (640, 480)},
+                controls     = {"FrameRate": frame_rate},
+                buffer_count = 12,
+            )
+            imx500.show_network_fw_progress_bar()
+            self.picam.start(config, show_preview=False)
             self.sim_mode = False
-            print("[FoodDetector] USB webcam + YOLO active.")
-        else:
-            self.cap = None
-            print("[FoodDetector] No camera found — simulation mode.")
+            print(f"[FoodDetector] Pi AI Camera (IMX500) active — YOLO running on CPU.")
+        except Exception as exc:
+            print(f"[FoodDetector] Pi AI Camera error: {exc} — simulation mode.")
+            if self.picam:
+                try:
+                    self.picam.stop()
+                except Exception:
+                    pass
+            self.picam = None
 
     # ── Public API ────────────────────────────────────────────────────────────
 
@@ -153,18 +151,19 @@ class FoodDetector:
         if self._sim_frame is not None:
             return self._sim_frame
         if self.picam:
-            frame_rgb = self.picam.capture_array()
-            return cv2.cvtColor(frame_rgb, cv2.COLOR_RGB2BGR)
-        if self.cap and self.cap.isOpened():
-            ok, frame = self.cap.read()
-            return frame if ok else None
+            try:
+                frame = self.picam.capture_array("main")  # RGB888 → (H, W, 3)
+                return cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
+            except Exception:
+                return self._synthetic_frame()
         return self._synthetic_frame()
 
     def release(self):
         if self.picam:
-            self.picam.stop()
-        if self.cap:
-            self.cap.release()
+            try:
+                self.picam.stop()
+            except Exception:
+                pass
 
     def clear_sim_frame(self):
         self._sim_frame = None
@@ -193,7 +192,7 @@ class FoodDetector:
 
     def _sim_scan(self, duration: float) -> dict | None:
         time.sleep(duration)
-        name = random.choice(_SIM_FOODS)
+        name   = random.choice(_SIM_FOODS)
         images = self._class_images.get(name, [])
         if images:
             self._sim_frame = cv2.imread(str(random.choice(images)))
