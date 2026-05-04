@@ -12,6 +12,7 @@ import time
 
 try:
     import board
+    import busio
     import adafruit_mlx90640
     _MLX_OK = True
 except (ImportError, NotImplementedError):
@@ -48,9 +49,13 @@ class ThermalCamera:
 
         if _MLX_OK:
             try:
-                i2c = board.I2C()
+                try:
+                    i2c = busio.I2C(board.SCL, board.SDA, frequency=800000)
+                except Exception:
+                    i2c = board.I2C()   # Pi 5 fallback
                 self._mlx = adafruit_mlx90640.MLX90640(i2c)
-                self._mlx.refresh_rate = adafruit_mlx90640.RefreshRate.RATE_4_HZ
+                self._mlx.refresh_rate = adafruit_mlx90640.RefreshRate.REFRESH_2_HZ
+                print(f"[ThermalCamera] MLX90640 serial: {[hex(i) for i in self._mlx.serial_number]}")
                 self._start_mlx_reader()
                 print("[ThermalCamera] MLX90640 active.")
             except Exception as exc:
@@ -69,17 +74,21 @@ class ThermalCamera:
         buf = [0.0] * 768
         while self._mlx_reader_alive:
             try:
-                self._mlx.getFrame(buf)        # blocks ~250 ms at 4 Hz
-                arr = np.array(buf, dtype=np.float32).reshape(24, 32)
-                # centre 8×8 region → food hotspot
-                centre_max = float(arr[8:16, 12:20].max())
-                temp_f = centre_max * 9 / 5 + 32
-                with self._mlx_lock:
-                    self._mlx_buf     = buf[:]
-                    self._mlx_arr     = arr
-                    self._last_mlx_t  = temp_f
-            except Exception:
-                time.sleep(0.25)
+                self._mlx.getFrame(buf)        # blocks ~500 ms at 2 Hz
+            except ValueError:
+                # Occasional CRC/framing errors — just retry (per Adafruit example)
+                continue
+            except Exception as exc:
+                print(f"[ThermalCamera] reader error: {exc}")
+                time.sleep(0.5)
+                continue
+            arr = np.array(buf, dtype=np.float32).reshape(24, 32)
+            # centre 8×8 region (rows 8-15, cols 12-19) → food hotspot
+            centre_max = float(arr[8:16, 12:20].max())
+            temp_f = centre_max * 9 / 5 + 32
+            with self._mlx_lock:
+                self._mlx_arr    = arr.copy()
+                self._last_mlx_t = temp_f
 
     # ── Public API ────────────────────────────────────────────────────────────
 
