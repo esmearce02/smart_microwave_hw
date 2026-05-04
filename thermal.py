@@ -11,7 +11,6 @@ import time
 
 try:
     import board
-    import busio
     import adafruit_mlx90640
     _MLX_OK = True
 except (ImportError, NotImplementedError):
@@ -46,7 +45,7 @@ class ThermalCamera:
 
         if _MLX_OK:
             try:
-                i2c = busio.I2C(board.SCL, board.SDA, frequency=400_000)
+                i2c = board.I2C()
                 self._mlx = adafruit_mlx90640.MLX90640(i2c)
                 self._mlx.refresh_rate = adafruit_mlx90640.RefreshRate.RATE_4_HZ
                 print("[ThermalCamera] MLX90640 active.")
