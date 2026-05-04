@@ -6,6 +6,7 @@ falls back to Newton's Law simulation otherwise.
 
 import math
 import random
+import threading
 import time
 
 
@@ -37,21 +38,48 @@ class ThermalCamera:
         self._done        = False
         self._frozen_temp = None
 
-        # MLX90640 hardware
-        self._mlx         = None
-        self._mlx_buf     = [0.0] * 768   # 32×24 pixel buffer
-        self._last_mlx_t  = None          # cached reading (sensor runs at 4 Hz)
-        self._last_mlx_ts = 0.0
+        # MLX90640 hardware — read on a background thread to avoid blocking tkinter
+        self._mlx              = None
+        self._mlx_lock         = threading.Lock()
+        self._mlx_buf          = [0.0] * 768   # 32×24 pixel buffer (shared)
+        self._mlx_arr          = None           # numpy (24,32) — latest frame
+        self._last_mlx_t       = None           # latest centre-hotspot temp °F
+        self._mlx_reader_alive = False
 
         if _MLX_OK:
             try:
                 i2c = board.I2C()
                 self._mlx = adafruit_mlx90640.MLX90640(i2c)
                 self._mlx.refresh_rate = adafruit_mlx90640.RefreshRate.RATE_4_HZ
+                self._start_mlx_reader()
                 print("[ThermalCamera] MLX90640 active.")
             except Exception as exc:
                 print(f"[ThermalCamera] MLX90640 error: {exc} — simulation mode.")
                 self._mlx = None
+
+    # ── Background reader ─────────────────────────────────────────────────────
+
+    def _start_mlx_reader(self):
+        self._mlx_reader_alive = True
+        t = threading.Thread(target=self._mlx_reader_loop, daemon=True)
+        t.start()
+
+    def _mlx_reader_loop(self):
+        import numpy as np
+        buf = [0.0] * 768
+        while self._mlx_reader_alive:
+            try:
+                self._mlx.getFrame(buf)        # blocks ~250 ms at 4 Hz
+                arr = np.array(buf, dtype=np.float32).reshape(24, 32)
+                # centre 8×8 region → food hotspot
+                centre_max = float(arr[8:16, 12:20].max())
+                temp_f = centre_max * 9 / 5 + 32
+                with self._mlx_lock:
+                    self._mlx_buf     = buf[:]
+                    self._mlx_arr     = arr
+                    self._last_mlx_t  = temp_f
+            except Exception:
+                time.sleep(0.25)
 
     # ── Public API ────────────────────────────────────────────────────────────
 
@@ -99,7 +127,7 @@ class ThermalCamera:
         self._frozen_temp = None
 
     def colormap_frame(self, width: int = 400, height: int = 120):
-        """Return a BGR false-colour thermal image for the UI."""
+        """Return a BGR false-colour thermal image for the UI (non-blocking)."""
         import numpy as np
         import cv2
 
@@ -110,41 +138,28 @@ class ThermalCamera:
     # ── MLX90640 hardware ─────────────────────────────────────────────────────
 
     def _read_mlx(self) -> float:
-        """Read centre-region max temperature from the sensor (cached at 4 Hz)."""
-        now = time.time()
-        if now - self._last_mlx_ts < 0.25:          # use cached value between sensor frames
-            return self._last_mlx_t or self._t0
-        try:
-            self._mlx.getFrame(self._mlx_buf)
-            # centre 8×8 region of the 32×24 grid → food hotspot
-            centre = [
-                self._mlx_buf[r * 32 + c]
-                for r in range(8, 16)
-                for c in range(12, 20)
-            ]
-            temp_c = max(centre)
-            temp_f = temp_c * 9 / 5 + 32
-            self._last_mlx_t  = temp_f
-            self._last_mlx_ts = now
-            return temp_f
-        except Exception:
-            return self._last_mlx_t or self._t0
+        """Return the latest cached centre-region temperature (non-blocking)."""
+        with self._mlx_lock:
+            t = self._last_mlx_t
+        return t if t is not None else self._t0
 
     def _mlx_colormap_frame(self, width: int, height: int):
         import numpy as np
         import cv2
 
-        try:
-            self._mlx.getFrame(self._mlx_buf)
-            arr = np.array(self._mlx_buf, dtype=np.float32).reshape(24, 32)
-            lo, hi = arr.min(), arr.max()
-            norm = ((arr - lo) / max(hi - lo, 1.0) * 255).astype(np.uint8)
-            colored = cv2.applyColorMap(norm, cv2.COLORMAP_JET)
-            colored = cv2.resize(colored, (width, height))
-        except Exception:
-            colored = self._sim_colormap_frame(width, height)
+        with self._mlx_lock:
+            arr = self._mlx_arr
 
-        temp_f = self.temperature
+        if arr is None:
+            # Reader hasn't produced a frame yet — show sim placeholder
+            return self._sim_colormap_frame(width, height)
+
+        lo, hi = arr.min(), arr.max()
+        norm    = ((arr - lo) / max(hi - lo, 1.0) * 255).astype(np.uint8)
+        colored = cv2.applyColorMap(norm, cv2.COLORMAP_JET)
+        colored = cv2.resize(colored, (width, height))
+
+        temp_f = self._read_mlx()
         cv2.putText(colored, f"{temp_f:.1f} °F", (10, height - 12),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
         self._draw_target_line(colored, width, height)
@@ -169,8 +184,8 @@ class ThermalCamera:
         import numpy as np
         import cv2
 
-        temp = self.temperature
-        norm = max(0.0, min(1.0, (temp - 32.0) / (212.0 - 32.0)))
+        temp    = self.temperature
+        norm    = max(0.0, min(1.0, (temp - 32.0) / (212.0 - 32.0)))
         base    = np.full((height, width), int(norm * 255), dtype=np.uint8)
         colored = cv2.applyColorMap(base, cv2.COLORMAP_JET)
         cv2.putText(colored, f"{temp:.1f} °F", (10, height - 12),
