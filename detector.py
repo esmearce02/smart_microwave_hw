@@ -113,7 +113,13 @@ class FoodDetector:
         # 1. Try Raspberry Pi AI Camera (IMX500)
         if _PICAM_OK:
             try:
-                imx500 = IMX500()              # initialise IMX500 sensor (frame capture only)
+                # IMX500 requires a model file — use any available rpk to init the sensor.
+                # Food detection still runs via our YOLO model on the Pi CPU.
+                rpk_dir = Path("/usr/share/imx500-models")
+                rpk_files = sorted(rpk_dir.glob("*.rpk")) if rpk_dir.exists() else []
+                if not rpk_files:
+                    raise FileNotFoundError("No RPK models found in /usr/share/imx500-models/")
+                imx500 = IMX500(str(rpk_files[0]))   # must be called before Picamera2()
                 self.picam = Picamera2(imx500.camera_num)
                 cfg = self.picam.create_preview_configuration(
                     main={"format": "RGB888", "size": (640, 480)}
@@ -121,7 +127,7 @@ class FoodDetector:
                 self.picam.configure(cfg)
                 self.picam.start()
                 self.sim_mode = False
-                print("[FoodDetector] Raspberry Pi AI Camera (IMX500) + YOLO active.")
+                print(f"[FoodDetector] Raspberry Pi AI Camera (IMX500) + YOLO active.")
                 return
             except Exception as exc:
                 print(f"[FoodDetector] Pi AI Camera error: {exc}")
