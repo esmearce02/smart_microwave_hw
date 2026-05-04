@@ -17,6 +17,7 @@ except ImportError:
 
 try:
     from picamera2 import Picamera2
+    from picamera2.devices import IMX500
     _PICAM_OK = True
 except (ImportError, RuntimeError):
     _PICAM_OK = False
@@ -109,20 +110,21 @@ class FoodDetector:
             print(f"[FoodDetector] YOLO load error: {exc} — simulation mode.")
             return
 
-        # 1. Try Raspberry Pi AI Camera
+        # 1. Try Raspberry Pi AI Camera (IMX500)
         if _PICAM_OK:
             try:
-                self.picam = Picamera2()
+                imx500 = IMX500()              # initialise IMX500 sensor (frame capture only)
+                self.picam = Picamera2(imx500.camera_num)
                 cfg = self.picam.create_preview_configuration(
                     main={"format": "RGB888", "size": (640, 480)}
                 )
                 self.picam.configure(cfg)
                 self.picam.start()
                 self.sim_mode = False
-                print("[FoodDetector] Raspberry Pi AI Camera + YOLO active.")
+                print("[FoodDetector] Raspberry Pi AI Camera (IMX500) + YOLO active.")
                 return
             except Exception as exc:
-                print(f"[FoodDetector] Pi camera error: {exc}")
+                print(f"[FoodDetector] Pi AI Camera error: {exc}")
                 self.picam = None
 
         # 2. Fall back to USB webcam
