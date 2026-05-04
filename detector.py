@@ -17,7 +17,7 @@ except ImportError:
 
 try:
     from picamera2 import Picamera2
-    from picamera2.devices import IMX500
+    from picamera2.devices.imx500 import IMX500
     _PICAM_OK = True
 except (ImportError, RuntimeError):
     _PICAM_OK = False
