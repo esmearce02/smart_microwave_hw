@@ -52,10 +52,11 @@ class SmartMicrowaveApp(tk.Tk):
         self.detector = FoodDetector("models/best.pt")
         self.thermal  = ThermalCamera()
 
-        self.state         = IDLE
-        self._food         = None      # detected food dict
-        self._heat_seconds = 40.0
-        self._running      = True
+        self.state             = IDLE
+        self._food             = None
+        self._heat_seconds     = 40.0
+        self._running          = True
+        self._sim_clear_timer  = None  # after() ID for 10s sim-frame clear
 
         self._build_ui()
         self._enter_idle()
@@ -267,6 +268,8 @@ class SmartMicrowaveApp(tk.Tk):
         self._start_btn.config(text="↺  RESET", state="normal",
                                fg=C["amber"], command=self._on_reset)
         self._play_done_sound()
+        # Return to live camera feed 10 s after completion
+        self._sim_clear_timer = self.after(10000, self.detector.clear_sim_frame)
 
     # ══════════════════════════════════════════════════════════════════════════
     # Background Workers
@@ -334,6 +337,9 @@ class SmartMicrowaveApp(tk.Tk):
             self._enter_heating()
 
     def _on_reset(self):
+        if self._sim_clear_timer:
+            self.after_cancel(self._sim_clear_timer)
+            self._sim_clear_timer = None
         self._stop_btn.pack_forget()
         self._start_btn.config(command=self._on_start)
         self.detector.clear_sim_frame()
