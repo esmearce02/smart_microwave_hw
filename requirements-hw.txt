@@ -8,4 +8,5 @@ picamera2
 # MLX90640 thermal camera (I2C)
 adafruit-blinka
 adafruit-circuitpython-mlx90640
+adafruit-extended-bus
 smbus2

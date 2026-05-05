@@ -11,8 +11,7 @@ import time
 
 
 try:
-    import board
-    import busio
+    from adafruit_extended_bus import ExtendedI2C as _ExtendedI2C
     import adafruit_mlx90640
     _MLX_OK = True
 except (ImportError, NotImplementedError):
@@ -49,10 +48,7 @@ class ThermalCamera:
 
         if _MLX_OK:
             try:
-                try:
-                    i2c = busio.I2C(board.SCL, board.SDA, frequency=800000)
-                except Exception:
-                    i2c = board.I2C()   # Pi 5 fallback
+                i2c = _ExtendedI2C(1)   # open /dev/i2c-1 directly — avoids Pi 5 pin-lookup bug
                 self._mlx = adafruit_mlx90640.MLX90640(i2c)
                 self._mlx.refresh_rate = adafruit_mlx90640.RefreshRate.REFRESH_2_HZ
                 print(f"[ThermalCamera] MLX90640 serial: {[hex(i) for i in self._mlx.serial_number]}")

@@ -4,18 +4,20 @@ Standalone MLX90640 diagnostic — run on Pi to verify sensor reads.
 """
 
 import time
-import board
-import busio
 import adafruit_mlx90640
 
-# ── I2C init (try 800 kHz per Adafruit docs, fall back to board.I2C) ─────────
+# ── I2C init — use ExtendedI2C(1) to open /dev/i2c-1 directly by bus number.
+# busio.I2C(board.SCL, board.SDA) fails on Pi 5 because blinka can't resolve
+# the RP1 GPIO chip pins. ExtendedI2C bypasses that lookup entirely.
 try:
-    i2c = busio.I2C(board.SCL, board.SDA, frequency=800000)
-    print("[I2C] busio.I2C at 800 kHz  OK")
+    from adafruit_extended_bus import ExtendedI2C as I2C
+    i2c = I2C(1)
+    print("[I2C] ExtendedI2C bus 1 (/dev/i2c-1)  OK")
 except Exception as e:
-    print(f"[I2C] busio.I2C failed ({e}), trying board.I2C()")
-    i2c = board.I2C()
-    print("[I2C] board.I2C()  OK")
+    raise SystemExit(
+        f"[I2C] ExtendedI2C failed: {e}\n"
+        "Run:  pip install adafruit-extended-bus"
+    )
 
 # ── Sensor init ───────────────────────────────────────────────────────────────
 mlx = adafruit_mlx90640.MLX90640(i2c)
