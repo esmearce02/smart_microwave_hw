@@ -173,6 +173,16 @@ class SmartMicrowaveApp(tk.Tk):
                                     command=self._on_start)
         self._start_btn.pack(pady=(14, 6), ipadx=10)
 
+        # BYPASS button (only visible during CONFIRMED)
+        self._bypass_btn = tk.Button(frame, text="⚡  BYPASS HEATING",
+                                     font=("Courier New", 11, "bold"),
+                                     fg=C["white"], bg=C["amber"],
+                                     activebackground="#a06010",
+                                     activeforeground=C["white"],
+                                     relief="flat", bd=0, padx=18, pady=9,
+                                     cursor="hand2",
+                                     command=self._on_bypass)
+
         # STOP button (only visible during HEATING)
         self._stop_btn = tk.Button(frame, text="⏹  STOP",
                                    font=("Courier New", 12, "bold"),
@@ -225,6 +235,7 @@ class SmartMicrowaveApp(tk.Tk):
 
     def _enter_scanning(self):
         self.state = SCANNING
+        self._bypass_btn.pack_forget()
         self._state_var.set("[ SCANNING ]")
         self._food_lbl.config(text="🔍", fg=C["amber"])
         self._food_desc.config(text="Scanning food — please wait…")
@@ -247,15 +258,20 @@ class SmartMicrowaveApp(tk.Tk):
             f"Press START again to begin heating to 165 °F."
         )
         self._start_btn.config(text="▶  START HEATING", state="normal", fg=C["green"])
+        self._bypass_btn.pack(pady=(0, 6), ipadx=8)
 
     def _enter_heating(self):
         self.state = HEATING
+        self._bypass_btn.pack_forget()
         self._state_var.set("[ HEATING ]")
         self._start_btn.config(state="disabled", text="HEATING…")
         self._conf_var.set("")
         self._stop_btn.pack(pady=(0, 6), ipadx=8)
         self.thermal.start()
-        self._set_status("Heating food. Infrared camera monitoring temperature…")
+        if self.thermal.force_sim:
+            self._set_status("Simulating heating to 165 °F — no microwave required.")
+        else:
+            self._set_status("Heating food. Infrared camera monitoring temperature…")
         threading.Thread(target=self._run_heating, daemon=True).start()
 
     def _enter_complete(self):
@@ -336,12 +352,18 @@ class SmartMicrowaveApp(tk.Tk):
         elif self.state == CONFIRMED:
             self._enter_heating()
 
+    def _on_bypass(self):
+        self.thermal.force_sim = True
+        self._enter_heating()
+
     def _on_reset(self):
         if self._sim_clear_timer:
             self.after_cancel(self._sim_clear_timer)
             self._sim_clear_timer = None
+        self._bypass_btn.pack_forget()
         self._stop_btn.pack_forget()
         self._start_btn.config(command=self._on_start)
+        self.thermal.force_sim = False
         self.detector.clear_sim_frame()
         self._enter_idle()
 

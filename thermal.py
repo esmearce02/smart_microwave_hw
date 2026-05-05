@@ -37,6 +37,7 @@ class ThermalCamera:
         self._tau         = self._calc_tau(heat_seconds)
         self._done        = False
         self._frozen_temp = None
+        self.force_sim    = False   # bypass real sensor and use Newton simulation
 
         # MLX90640 hardware — read on a background thread to avoid blocking tkinter
         self._mlx              = None
@@ -114,13 +115,13 @@ class ThermalCamera:
     def temperature(self) -> float:
         if self._frozen_temp is not None:
             return self._frozen_temp
-        if self._mlx:
+        if self._mlx and not self.force_sim:
             return self._read_mlx()
         return self._sim_temperature()
 
     @property
     def reached_target(self) -> bool:
-        if self._mlx:
+        if self._mlx and not self.force_sim:
             return self.temperature >= self.TARGET_F
         return self._done
 
