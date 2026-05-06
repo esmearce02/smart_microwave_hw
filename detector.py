@@ -152,7 +152,8 @@ class FoodDetector:
             return self._sim_frame
         if self.picam:
             try:
-                return self.picam.capture_array("main")  # RGB888 → RGB numpy array
+                frame = self.picam.capture_array("main")
+                return cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)  # IMX500 outputs BGR; convert to RGB
             except Exception:
                 return self._synthetic_frame()
         return self._synthetic_frame()
