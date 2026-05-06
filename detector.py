@@ -123,7 +123,7 @@ class FoodDetector:
 
             self.picam  = Picamera2(imx500.camera_num)
             config      = self.picam.create_preview_configuration(
-                main         = {"format": "BGR888", "size": (640, 480)},
+                main         = {"format": "RGB888", "size": (640, 480)},
                 controls     = {"FrameRate": frame_rate},
                 buffer_count = 12,
             )
@@ -152,7 +152,7 @@ class FoodDetector:
             return self._sim_frame
         if self.picam:
             try:
-                return self.picam.capture_array("main")  # BGR888 → native OpenCV/YOLO format
+                return self.picam.capture_array("main")  # RGB888 → RGB numpy array
             except Exception:
                 return self._synthetic_frame()
         return self._synthetic_frame()
@@ -173,11 +173,13 @@ class FoodDetector:
         deadline = time.time() + duration
         votes: dict[str, int] = {}
         while time.time() < deadline:
-            frame = self.grab_frame()
-            if frame is None:
+            frame_rgb = self.grab_frame()   # RGB
+            if frame_rgb is None:
                 time.sleep(0.05)
                 continue
-            results = self.model(frame, verbose=False)
+            # Ultralytics YOLO expects BGR (OpenCV convention)
+            frame_bgr = cv2.cvtColor(frame_rgb, cv2.COLOR_RGB2BGR)
+            results = self.model(frame_bgr, verbose=False)
             for r in results:
                 for box in r.boxes:
                     name = self.model.names[int(box.cls[0])]
@@ -194,16 +196,18 @@ class FoodDetector:
         name   = random.choice(_SIM_FOODS)
         images = self._class_images.get(name, [])
         if images:
-            self._sim_frame = cv2.imread(str(random.choice(images)))
+            bgr = cv2.imread(str(random.choice(images)))
+            if bgr is not None:
+                self._sim_frame = cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB)  # store as RGB
         return {"name": name, **FOOD_META[name]}
 
     @staticmethod
     def _synthetic_frame() -> np.ndarray:
         frame = np.zeros((480, 640, 3), dtype=np.uint8)
-        frame[:] = (20, 20, 35)
-        cv2.circle(frame, (320, 260), 200, (40, 40, 60), 2)
+        frame[:] = (35, 20, 20)   # RGB: dark blue-ish background
+        cv2.circle(frame, (320, 260), 200, (60, 40, 40), 2)
         y = int((time.time() * 80) % 480)
-        cv2.line(frame, (0, y), (640, y), (0, 212, 255), 1)
+        cv2.line(frame, (0, y), (640, y), (255, 212, 0), 1)   # RGB accent
         cv2.putText(frame, "SCANNING...", (220, 440),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 212, 255), 2)
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 212, 0), 2)  # RGB accent
         return frame

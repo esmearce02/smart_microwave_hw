@@ -331,11 +331,11 @@ class SmartMicrowaveApp(tk.Tk):
         self.after(66, self._tick)   # ~15 fps
 
     def _refresh_camera(self):
-        frame = self.detector.grab_frame()
+        frame = self.detector.grab_frame()   # always RGB
         if frame is None:
             return
         frame = cv2.resize(frame, (400, 300))
-        img = ImageTk.PhotoImage(Image.fromarray(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)))
+        img = ImageTk.PhotoImage(Image.fromarray(frame))   # PIL expects RGB — no conversion
         self._cam_canvas.create_image(0, 0, anchor="nw", image=img)
         self._cam_canvas._img = img   # keep reference
 
