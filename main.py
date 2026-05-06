@@ -324,7 +324,10 @@ class SmartMicrowaveApp(tk.Tk):
         if not self._running:
             return
         self._refresh_camera()
-        self._refresh_ir()
+        if self.state in (HEATING, COMPLETE):
+            self._refresh_ir()
+        else:
+            self._refresh_ir_standby()
         self.after(66, self._tick)   # ~15 fps
 
     def _refresh_camera(self):
@@ -341,6 +344,12 @@ class SmartMicrowaveApp(tk.Tk):
         img = ImageTk.PhotoImage(Image.fromarray(cv2.cvtColor(ir, cv2.COLOR_BGR2RGB)))
         self._ir_canvas.create_image(0, 0, anchor="nw", image=img)
         self._ir_canvas._img = img
+
+    def _refresh_ir_standby(self):
+        self._ir_canvas.delete("all")
+        self._ir_canvas.create_rectangle(0, 0, 400, 120, fill="#050a10", outline="")
+        self._ir_canvas.create_text(200, 60, text="THERMAL  —  STANDBY",
+                                    font=("Courier New", 11), fill=C["dim"])
 
     # ══════════════════════════════════════════════════════════════════════════
     # Button Handlers

@@ -123,7 +123,7 @@ class FoodDetector:
 
             self.picam  = Picamera2(imx500.camera_num)
             config      = self.picam.create_preview_configuration(
-                main         = {"format": "RGB888", "size": (640, 480)},
+                main         = {"format": "BGR888", "size": (640, 480)},
                 controls     = {"FrameRate": frame_rate},
                 buffer_count = 12,
             )
@@ -152,8 +152,7 @@ class FoodDetector:
             return self._sim_frame
         if self.picam:
             try:
-                frame = self.picam.capture_array("main")  # RGB888 → (H, W, 3)
-                return cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
+                return self.picam.capture_array("main")  # BGR888 → native OpenCV/YOLO format
             except Exception:
                 return self._synthetic_frame()
         return self._synthetic_frame()
